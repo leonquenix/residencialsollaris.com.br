@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Festa do Dia das Crianças 🎉</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <main class="login-box">
+    <div class="emoji">🎈🎉🍿</div>
+    <h1>Festa do Dia das Crianças</h1>
+    <p class="small">12 de outubro · Entre com o CPF e a senha que você recebeu</p>
+    <form class="card sun" id="form">
+      <label for="login">CPF</label>
+      <input id="login" name="login" inputmode="numeric" autocomplete="username" placeholder="000.000.000-00" required autofocus>
+      <label for="password">Senha</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required>
+      <button type="submit" id="btn">Entrar 🎟️</button>
+    </form>
+  </main>
+  <script src="/app.js"></script>
+  <script>
+    balloons();
+    const form = document.getElementById('form');
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = document.getElementById('btn'); btn.disabled = true;
+      try {
+        const { role } = await api('/api/login', { body: { login: form.login.value, password: form.password.value } });
+        location.href = { admin: '/admin', vendedor: '/vendedor', cliente: '/cliente' }[role] || '/';
+      } catch (err) { toast(err.message, 'err'); btn.disabled = false; }
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,5 @@
+# Troque pelo seu domínio (ou subdomínio) apontando pro IP da VPS.
+# O Caddy emite e renova o certificado HTTPS sozinho. A câmera do celular só funciona em HTTPS.
+festa.seudominio.com.br {
+    reverse_proxy localhost:3000
+}

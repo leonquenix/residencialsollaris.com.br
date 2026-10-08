@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Validar voucher 📷</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header class="topbar"></header>
+  <main>
+    <div class="card sky">
+      <h2>📷 Aponte a câmera pro QR Code</h2>
+      <p class="hint">Ao reconhecer, aparece um pop-up pra você confirmar antes de consumir.</p>
+      <div class="scanner">
+        <video id="video" playsinline muted></video>
+        <div class="frame"></div>
+        <div class="msg" id="camMsg">Iniciando câmera…</div>
+      </div>
+      <canvas id="canvas" hidden></canvas>
+      <div class="row mt">
+        <button class="btn-ghost btn-sm" id="camBtn" onclick="toggleCam()">Ligar câmera</button>
+      </div>
+    </div>
+
+    <div class="result" id="result"></div>
+
+    <div class="modal-bg" id="modalBg">
+      <div class="modal" id="modal"></div>
+    </div>
+
+    <div class="card sun">
+      <h2>⌨️ Ou digite o código</h2>
+      <form class="row" id="manual">
+        <input id="code" inputmode="numeric" placeholder="43073902880-1" autocomplete="off">
+        <button type="submit" class="btn-sun">Validar</button>
+      </form>
+      <p class="hint">Formato: CPF + traço + número do voucher, como aparece embaixo do QR Code.</p>
+    </div>
+
+    <div class="card mint">
+      <h2>🧾 Últimas validações suas</h2>
+      <ul class="list" id="history"><li class="small">Nenhuma ainda.</li></ul>
+    </div>
+  </main>
+  <script src="/app.js"></script>
+  <script src="/vendor/jsQR.js"></script>
+  <script>
+    balloons();
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    const result = document.getElementById('result');
+    const camMsg = document.getElementById('camMsg');
+    let stream = null, scanning = false, busy = false;
+    let lastCode = '', lastAt = 0;
+
+    function beep(ok) {
+      try {
+        const ac = new (window.AudioContext || window.webkitAudioContext)();
+        const o = ac.createOscillator(), g = ac.createGain();
+        o.frequency.value = ok ? 880 : 220; o.type = 'sine'; g.gain.value = .15;
+        o.connect(g).connect(ac.destination); o.start(); o.stop(ac.currentTime + (ok ? .12 : .3));
+      } catch {}
+      if (navigator.vibrate) navigator.vibrate(ok ? 80 : [80, 60, 80]);
+    }
+
+    // ---- pop-up de confirmação ----
+    const modalBg = document.getElementById('modalBg');
+    const modal = document.getElementById('modal');
+    let paused = false; // enquanto o pop-up está aberto, a câmera não lê nada
+
+    function closeModal() {
+      modalBg.classList.remove('show');
+      lastAt = Date.now(); // ignora o mesmo QR por alguns segundos após fechar
+      setTimeout(() => { paused = false; }, 800);
+    }
+
+    async function ask(code) {
+      if (busy || paused) return;
+      busy = true; paused = true;
+      try {
+        const r = await api(`/api/vendedor/consultar?code=${encodeURIComponent(code)}`);
+        const v = r.voucher;
+        if (r.ok) {
+          modal.className = 'modal';
+          modal.innerHTML = `
+            <div class="icon">${emojiFor(v.label)}</div>
+            <div class="what">${esc(v.label)}</div>
+            <div class="who">${esc(v.owner_name)}</div>
+            <div class="code">${esc(v.code)}</div>
+            <p class="hint mt">Confirmar o consumo deste voucher?</p>
+            <div class="actions">
+              <button class="btn-ghost" id="btnCancel">Cancelar</button>
+              <button class="btn-mint" id="btnConfirm">✅ Confirmar</button>
+            </div>`;
+          document.getElementById('btnCancel').onclick = closeModal;
+          document.getElementById('btnConfirm').onclick = async () => {
+            const btn = document.getElementById('btnConfirm'); btn.disabled = true;
+            try { showResult(await api('/api/vendedor/validar', { body: { code: v.code } })); closeModal(); }
+            catch (e) { toast(e.message, 'err'); btn.disabled = false; }
+          };
+        } else {
+          beep(false);
+          const msg = r.error === 'ja_usado'
+            ? `<div class="icon">❌</div><div class="what">Já consumido</div><div class="who">${esc(v.label)} · ${esc(v.owner_name)}</div>
+               <div class="code">${esc(v.code)}</div><p class="hint mt">Validado em ${fmtDateTime(v.redeemed_at)} por ${esc(v.redeemed_by_name || '?')}</p>`
+            : r.error === 'formato_invalido'
+              ? `<div class="icon">🤔</div><div class="what">Código inválido</div><p class="hint mt">Use o formato CPF-número, ex: 43073902880-1</p>`
+              : `<div class="icon">❌</div><div class="what">Não encontrado</div><p class="hint mt">Esse código não existe. Confira os números.</p>`;
+          modal.className = 'modal err';
+          modal.innerHTML = `${msg}<div class="actions"><button class="btn-ghost" id="btnCancel">Fechar</button></div>`;
+          document.getElementById('btnCancel').onclick = closeModal;
+        }
+        modalBg.classList.add('show');
+      } catch (e) { toast(e.message, 'err'); paused = false; }
+      finally { busy = false; }
+    }
+    modalBg.addEventListener('click', (e) => { if (e.target === modalBg) closeModal(); });
+
+    function showResult(r) {
+      const v = r.voucher;
+      let html;
+      if (r.ok) {
+        html = `<span class="big">✅ Válido!</span>${emojiFor(v.label)} ${esc(v.label)}<div class="detail">${esc(v.owner_name)} · ${esc(v.code)}</div>`;
+      } else if (r.error === 'ja_usado') {
+        html = `<span class="big">❌ Já usado</span>${esc(v.label)} · ${esc(v.owner_name)}<div class="detail">Validado às ${fmtTime(v.redeemed_at)} por ${esc(v.redeemed_by_name || '?')}</div>`;
+      } else if (r.error === 'formato_invalido') {
+        html = `<span class="big">🤔 Código inválido</span><div class="detail">Use o formato CPF-número, ex: 43073902880-1</div>`;
+      } else {
+        html = `<span class="big">❌ Não encontrado</span><div class="detail">Esse código não existe. Confira os números.</div>`;
+      }
+      result.className = `result show ${r.ok ? 'ok' : 'err'}`;
+      result.innerHTML = html;
+      beep(r.ok);
+      loadHistory().catch(() => {});
+    }
+
+    document.getElementById('manual').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const input = document.getElementById('code');
+      if (!input.value.trim()) return;
+      await ask(input.value);
+      input.value = '';
+    });
+
+    async function loadHistory() {
+      const list = await api('/api/vendedor/historico');
+      document.getElementById('history').innerHTML = list.length
+        ? list.map((v) => `<li><span>${esc(v.label)} · ${esc(v.owner_name)}</span><span class="small">${esc(v.code)} · ${fmtTime(v.redeemed_at)}</span></li>`).join('')
+        : '<li class="small">Nenhuma ainda.</li>';
+    }
+
+    // ---- câmera ----
+    function tick() {
+      if (!scanning) return;
+      if (!paused && video.readyState === video.HAVE_ENOUGH_DATA) {
+        canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+        ctx.drawImage(video, 0, 0);
+        const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const qr = jsQR(img.data, img.width, img.height, { inversionAttempts: 'dontInvert' });
+        const now = Date.now();
+        if (qr?.data && (qr.data !== lastCode || now - lastAt > 4000)) {
+          lastCode = qr.data; lastAt = now;
+          ask(qr.data);
+        }
+      }
+      requestAnimationFrame(tick);
+    }
+
+    async function startCam() {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false });
+        video.srcObject = stream; await video.play();
+        scanning = true; camMsg.textContent = 'Enquadre o QR Code';
+        document.getElementById('camBtn').textContent = 'Desligar câmera';
+        tick();
+      } catch (e) {
+        camMsg.textContent = 'Câmera indisponível. Digite o código abaixo.';
+        if (location.protocol !== 'https:' && location.hostname !== 'localhost') camMsg.textContent += ' (a câmera exige HTTPS)';
+      }
+    }
+    function stopCam() {
+      scanning = false; stream?.getTracks().forEach((t) => t.stop()); stream = null;
+      camMsg.textContent = 'Câmera desligada'; document.getElementById('camBtn').textContent = 'Ligar câmera';
+    }
+    function toggleCam() { stream ? stopCam() : startCam(); }
+
+    (async () => {
+      const me = await api('/api/me');
+      topbar(me, 'Vendedor');
+      loadHistory().catch(() => {});
+      startCam();
+    })().catch((e) => toast(e.message, 'err'));
+  </script>
+</body>
+</html>

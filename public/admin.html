@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Admin 🎪</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header class="topbar"></header>
+  <main>
+    <div class="tabs">
+      <button data-tab="pessoas" class="active">👨‍👩‍👧 Pessoas</button>
+      <button data-tab="novo">➕ Cadastrar</button>
+      <button data-tab="importar">📋 Importar lista</button>
+      <button data-tab="resumo">📊 Resumo</button>
+      <a class="btn btn-sky" href="/vendedor">📷 Validar</a>
+    </div>
+
+    <!-- PESSOAS -->
+    <section class="tab active" id="tab-pessoas">
+      <div class="card grape">
+        <div class="row">
+          <input id="search" placeholder="Buscar por nome ou CPF…">
+          <button class="btn-ghost btn-sm" onclick="loadUsers()">Atualizar</button>
+        </div>
+        <table class="mt">
+          <thead><tr><th>Nome</th><th>CPF</th><th class="hide-sm">Tipo</th><th>Vouchers</th></tr></thead>
+          <tbody id="users"></tbody>
+        </table>
+      </div>
+      <div class="card sun" id="detail" style="display:none"></div>
+    </section>
+
+    <!-- NOVO -->
+    <section class="tab" id="tab-novo">
+      <form class="card mint" id="newUser">
+        <h2>Cadastrar pessoa</h2>
+        <label>Tipo</label>
+        <select name="role">
+          <option value="cliente">Cliente (morador)</option>
+          <option value="vendedor">Vendedor (barraquinha)</option>
+          <option value="admin">Admin</option>
+        </select>
+        <label>Nome</label>
+        <input name="name" required>
+        <label>CPF (login)</label>
+        <input name="login" inputmode="numeric" placeholder="000.000.000-00" required>
+        <label>Senha</label>
+        <input name="password" required minlength="4" placeholder="mín. 4 caracteres">
+        <div id="vouchersField">
+          <label>Vouchers</label>
+          <div class="qty-grid" id="newQty"></div>
+          <p class="hint">Outros (opcional): <code>Pipoca=2, Refrigerante</code></p>
+          <input name="extra" placeholder="Pipoca=2, Refrigerante">
+        </div>
+        <button class="btn-mint mt" type="submit">Cadastrar 🎉</button>
+      </form>
+
+      <div class="card grape">
+        <h2>Tipos de voucher</h2>
+        <p class="hint">Aparecem como campos numéricos no cadastro. Apagar um tipo não apaga vouchers já criados.</p>
+        <ul class="list" id="types"></ul>
+        <form class="row mt" id="typeForm">
+          <input name="name" placeholder="Novo tipo, ex: Pipoca" required>
+          <button class="btn-grape btn-sm" type="submit">Adicionar tipo</button>
+        </form>
+      </div>
+    </section>
+
+    <!-- IMPORTAR -->
+    <section class="tab" id="tab-importar">
+      <form class="card coral" id="importForm">
+        <h2>Importar lista de moradores</h2>
+        <p class="hint">Uma pessoa por linha, separando com <b>;</b> (ou colando direto do Excel, com Tab):<br>
+          <code>CPF;Nome;Senha;Suco=5|Cachorro-quente=6</code></p>
+        <textarea name="text" rows="10" placeholder="43073902880;Maria Silva;abacaxi;Suco=5|Cachorro-quente=6
+12345678901;João Souza;banana;Suco=2|Cachorro-quente=2"></textarea>
+        <button class="mt" type="submit">Importar 📋</button>
+        <div id="importReport" class="mt"></div>
+      </form>
+    </section>
+
+    <!-- RESUMO -->
+    <section class="tab" id="tab-resumo">
+      <div class="stats" id="stats"></div>
+      <div class="card grape mt">
+        <h2>Por tipo de voucher</h2>
+        <table><thead><tr><th>Voucher</th><th>Usados</th><th>Total</th></tr></thead><tbody id="porTipo"></tbody></table>
+      </div>
+      <div class="card sky">
+        <h2>Últimas validações</h2>
+        <ul class="list" id="recentes"></ul>
+      </div>
+    </section>
+  </main>
+  <script src="/app.js"></script>
+  <script>
+    balloons();
+    let users = [], me = null;
+
+    // tabs
+    document.querySelectorAll('.tabs button').forEach((b) => b.addEventListener('click', () => {
+      document.querySelectorAll('.tabs button').forEach((x) => x.classList.toggle('active', x === b));
+      document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.id === `tab-${b.dataset.tab}`));
+      if (b.dataset.tab === 'resumo') loadStats();
+      if (b.dataset.tab === 'pessoas') loadUsers();
+    }));
+
+    // ---- pessoas ----
+    function renderUsers() {
+      const s = document.getElementById('search').value.trim().toLowerCase().replace(/\D/g, '') || document.getElementById('search').value.trim().toLowerCase();
+      const list = users.filter((u) => !s || u.name.toLowerCase().includes(s) || u.login.includes(s));
+      document.getElementById('users').innerHTML = list.map((u) => `
+        <tr class="clickable" onclick="openUser(${u.id})">
+          <td>${esc(u.name)}</td>
+          <td>${esc(fmtCpf(u.login))}</td>
+          <td class="hide-sm"><span class="pill ${u.role}">${u.role}</span></td>
+          <td>${u.role === 'cliente' ? `${u.usados}/${u.total}` : '—'}</td>
+        </tr>`).join('') || '<tr><td colspan="4" class="small">Ninguém cadastrado ainda.</td></tr>';
+    }
+    async function loadUsers() { users = await api('/api/admin/users'); renderUsers(); }
+    document.getElementById('search').addEventListener('input', renderUsers);
+
+    async function openUser(id) {
+      const u = await api(`/api/admin/users/${id}`);
+      const d = document.getElementById('detail'); d.style.display = 'block';
+      d.innerHTML = `
+        <div class="row" style="justify-content:space-between">
+          <div><h2>${esc(u.name)} <span class="pill ${u.role}">${u.role}</span></h2><div class="small">${esc(fmtCpf(u.login))}</div></div>
+          <button class="btn-ghost btn-sm" onclick="document.getElementById('detail').style.display='none'">Fechar</button>
+        </div>
+        ${u.role === 'cliente' ? `
+        <h3 class="mt">Vouchers</h3>
+        <ul class="list">${u.vouchers.map((v) => `
+          <li>
+            <span><b>${esc(v.label)}</b> <span class="small">${esc(v.code)}</span>
+              ${v.redeemed_at ? `<span class="pill used">usado ${fmtDateTime(v.redeemed_at)} · ${esc(v.redeemed_by_name || '?')}</span>` : '<span class="pill free">disponível</span>'}</span>
+            <span>
+              ${v.redeemed_at ? `<button class="btn-ghost btn-sm" onclick="act('/api/admin/vouchers/${v.id}/reset', {}, ${u.id})">Desfazer uso</button>` : ''}
+              <button class="btn-ghost btn-sm" onclick="confirm('Excluir este voucher?') && act('/api/admin/vouchers/${v.id}', null, ${u.id}, 'DELETE')">Excluir</button>
+            </span>
+          </li>`).join('') || '<li class="small">Sem vouchers.</li>'}
+        </ul>
+        <h3 class="mt">Adicionar vouchers</h3>
+        <form onsubmit="event.preventDefault(); act('/api/admin/users/${u.id}/vouchers', { vouchers: readQty(this) }, ${u.id}); this.reset()">
+          <div class="qty-grid">${qtyInputs()}</div>
+          <div class="row mt">
+            <input name="extra" placeholder="Outros: Pipoca=2, Refrigerante">
+            <button class="btn-mint btn-sm" type="submit">Adicionar</button>
+          </div>
+        </form>` : ''}
+        <h3 class="mt">Senha</h3>
+        <form class="row" onsubmit="event.preventDefault(); act('/api/admin/users/${u.id}/password', { password: this.password.value }, ${u.id}); this.reset()">
+          <input name="password" placeholder="Nova senha" minlength="4" required>
+          <button class="btn-sky btn-sm" type="submit">Trocar senha</button>
+        </form>
+        ${u.id !== me.id ? `<div class="mt"><button class="btn-sm" onclick="confirm('Excluir ${esc(u.name)} e todos os vouchers?') && act('/api/admin/users/${u.id}', null, null, 'DELETE')">🗑️ Excluir pessoa</button></div>` : ''}`;
+      d.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    async function act(path, body, reopenId, method) {
+      try {
+        await api(path, { body: body ?? undefined, method: method || (body ? 'POST' : 'GET') });
+        toast('Feito! ✅', 'ok');
+        await loadUsers();
+        if (reopenId) openUser(reopenId); else document.getElementById('detail').style.display = 'none';
+      } catch (e) { toast(e.message, 'err'); }
+    }
+
+    // ---- tipos de voucher ----
+    let types = [];
+    const qtyInputs = () => types.map((t) => `
+      <label class="qty"><span>${esc(t.name)}</span><input type="number" name="qty:${esc(t.name)}" min="0" max="99" value="0" inputmode="numeric"></label>`).join('')
+      || '<p class="hint">Nenhum tipo cadastrado. Crie em "Tipos de voucher".</p>';
+    // Lê um formulário com inputs qty:* e o campo "extra" -> texto "Suco=5|Cachorro-quente=6|Pipoca=2"
+    function readQty(form) {
+      const parts = [];
+      form.querySelectorAll('input[name^="qty:"]').forEach((i) => { if (Number(i.value) > 0) parts.push(`${i.name.slice(4)}=${Number(i.value)}`); });
+      if (form.extra?.value.trim()) parts.push(form.extra.value.trim());
+      return parts.join('|');
+    }
+    async function loadTypes() {
+      types = await api('/api/admin/types');
+      document.getElementById('types').innerHTML = types.map((t) => `
+        <li><span>${esc(t.name)}</span><button class="btn-ghost btn-sm" onclick="confirm('Remover o tipo ${esc(t.name)}?') && removeType(${t.id})">Remover</button></li>`).join('')
+        || '<li class="small">Nenhum tipo.</li>';
+      document.getElementById('newQty').innerHTML = qtyInputs();
+    }
+    async function removeType(id) {
+      try { await api(`/api/admin/types/${id}`, { method: 'DELETE' }); await loadTypes(); } catch (e) { toast(e.message, 'err'); }
+    }
+    document.getElementById('typeForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      try { await api('/api/admin/types', { body: { name: e.target.name.value } }); e.target.reset(); await loadTypes(); toast('Tipo criado ✅', 'ok'); }
+      catch (err) { toast(err.message, 'err'); }
+    });
+
+    // ---- novo ----
+    const newForm = document.getElementById('newUser');
+    newForm.role.addEventListener('change', () => { document.getElementById('vouchersField').style.display = newForm.role.value === 'cliente' ? '' : 'none'; });
+    newForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      try {
+        const u = await api('/api/admin/users', { body: { role: newForm.role.value, name: newForm.name.value, login: newForm.login.value, password: newForm.password.value, vouchers: readQty(newForm) } });
+        toast(`${u.name} cadastrado com ${u.vouchers.length} voucher(s) 🎉`, 'ok');
+        newForm.reset(); newForm.role.dispatchEvent(new Event('change'));
+      } catch (err) { toast(err.message, 'err'); }
+    });
+
+    // ---- importar ----
+    document.getElementById('importForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const form = e.target;
+      try {
+        const r = await api('/api/admin/users/import', { body: { text: form.text.value } });
+        document.getElementById('importReport').innerHTML = `<b>${r.criados} pessoa(s) e ${r.vouchers} voucher(s) criados.</b>` +
+          (r.erros.length ? `<ul class="small">${r.erros.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : '');
+        if (r.criados) form.text.value = r.erros.length ? form.text.value : '';
+      } catch (err) { toast(err.message, 'err'); }
+    });
+
+    // ---- resumo ----
+    async function loadStats() {
+      const s = await api('/api/admin/stats');
+      document.getElementById('stats').innerHTML = [
+        [s.clientes, 'moradores'], [s.vendedores, 'vendedores'], [s.vouchers || 0, 'vouchers'], [s.usados || 0, 'usados'],
+      ].map(([n, l]) => `<div class="stat"><div class="n">${n}</div><div class="l">${l}</div></div>`).join('');
+      document.getElementById('porTipo').innerHTML = s.porTipo.map((t) => `<tr><td>${esc(t.label)}</td><td>${t.usados}</td><td>${t.total}</td></tr>`).join('') || '<tr><td colspan="3" class="small">Nada ainda.</td></tr>';
+      document.getElementById('recentes').innerHTML = s.recentes.map((v) => `<li><span>${esc(v.label)} · ${esc(v.owner_name)}</span><span class="small">${fmtDateTime(v.redeemed_at)} · ${esc(v.redeemed_by_name || '?')}</span></li>`).join('') || '<li class="small">Nenhuma validação ainda.</li>';
+    }
+
+    (async () => {
+      me = await api('/api/me');
+      topbar(me, 'Administração');
+      await Promise.all([loadUsers(), loadTypes()]);
+    })().catch((e) => toast(e.message, 'err'));
+  </script>
+</body>
+</html>

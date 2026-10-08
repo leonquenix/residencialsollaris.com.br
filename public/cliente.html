@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Meus vouchers 🎟️</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header class="topbar"></header>
+  <main>
+    <div class="card pink" style="text-align:center">
+      <h1 id="hello">Olá! 🎈</h1>
+      <p>Mostre o QR Code pro vendedor da barraquinha. Cada voucher vale uma vez.</p>
+      <p class="small" id="summary"></p>
+    </div>
+    <div class="vouchers" id="vouchers"></div>
+  </main>
+  <script src="/app.js"></script>
+  <script>
+    balloons();
+    let last = '';
+    async function load() {
+      const list = await api('/api/cliente/vouchers');
+      const key = JSON.stringify(list.map((v) => [v.id, v.redeemed_at]));
+      if (key === last) return; last = key;
+      const livres = list.filter((v) => !v.redeemed_at).length;
+      document.getElementById('summary').textContent = list.length
+        ? `${livres} de ${list.length} voucher${list.length > 1 ? 's' : ''} ainda disponíve${livres === 1 ? 'l' : 'is'}`
+        : 'Você ainda não tem vouchers cadastrados.';
+      // Ordem fixa pelo número do voucher: nada sai da tela nem muda de lugar quando é consumido.
+      list.sort((a, b) => a.seq - b.seq);
+      document.getElementById('vouchers').innerHTML = list.map((v) => `
+        <div class="voucher ${v.redeemed_at ? 'used' : ''}">
+          <div class="label">${emojiFor(v.label)} ${esc(v.label)}</div>
+          <div class="qrwrap">
+            <img src="${v.qr}" alt="QR Code ${esc(v.code)}">
+            ${v.redeemed_at ? `<div class="consumed"><b>CONSUMIDO</b><span>${fmtDateTime(v.redeemed_at)}</span></div>` : ''}
+          </div>
+          <div class="code">${esc(v.code)}</div>
+          <div><span class="stamp">${v.redeemed_at ? `Consumido em ${fmtDateTime(v.redeemed_at)}` : 'Disponível 🎉'}</span></div>
+        </div>`).join('');
+    }
+    (async () => {
+      const me = await api('/api/me');
+      topbar(me, 'Meus vouchers');
+      document.getElementById('hello').textContent = `Olá, ${me.name.split(' ')[0]}! 🎈`;
+      await load();
+      setInterval(() => load().catch(() => {}), 4000); // atualiza sozinho quando o vendedor valida
+    })().catch((e) => toast(e.message, 'err'));
+  </script>
+</body>
+</html>

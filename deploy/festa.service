@@ -1,0 +1,19 @@
+# Serviço systemd: mantém o app rodando e reinicia se cair ou se a VPS reiniciar.
+# Instalação: veja o README.
+[Unit]
+Description=Festa do Dia das Crianças - vouchers
+After=network.target
+
+[Service]
+Type=simple
+User=festa
+WorkingDirectory=/opt/festa
+EnvironmentFile=-/opt/festa/.env
+Environment=NODE_ENV=production
+Environment=TZ=America/Sao_Paulo
+ExecStart=/usr/bin/node server.js
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
