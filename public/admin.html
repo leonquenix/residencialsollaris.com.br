@@ -46,8 +46,10 @@
         <input name="name" required>
         <label>CPF (login)</label>
         <input name="login" inputmode="numeric" placeholder="000.000.000-00" required>
-        <label>Senha</label>
-        <input name="password" required minlength="4" placeholder="mín. 4 caracteres">
+        <div id="passwordField" style="display:none">
+          <label>Senha</label>
+          <input name="password" minlength="4" placeholder="mín. 4 caracteres">
+        </div>
         <div id="vouchersField">
           <label>Vouchers</label>
           <div class="qty-grid" id="newQty"></div>
@@ -73,9 +75,9 @@
       <form class="card coral" id="importForm">
         <h2>Importar lista de moradores</h2>
         <p class="hint">Uma pessoa por linha, separando com <b>;</b> (ou colando direto do Excel, com Tab):<br>
-          <code>CPF;Nome;Senha;Suco=5|Cachorro-quente=6</code></p>
-        <textarea name="text" rows="10" placeholder="43073902880;Maria Silva;abacaxi;Suco=5|Cachorro-quente=6
-12345678901;João Souza;banana;Suco=2|Cachorro-quente=2"></textarea>
+          <code>CPF;Nome;Suco=5|Cachorro-quente=6</code><br>O CPF pode ter pontos e traço ou só números. Moradores entram só com o CPF.</p>
+        <textarea name="text" rows="10" placeholder="430.739.028-80;Maria Silva;Suco=5|Cachorro-quente=6
+12345678901;João Souza;Suco=2|Cachorro-quente=2"></textarea>
         <button class="mt" type="submit">Importar 📋</button>
         <div id="importReport" class="mt"></div>
       </form>
@@ -198,7 +200,13 @@
 
     // ---- novo ----
     const newForm = document.getElementById('newUser');
-    newForm.role.addEventListener('change', () => { document.getElementById('vouchersField').style.display = newForm.role.value === 'cliente' ? '' : 'none'; });
+    newForm.role.addEventListener('change', () => {
+      const cliente = newForm.role.value === 'cliente';
+      document.getElementById('vouchersField').style.display = cliente ? '' : 'none';
+      // Morador entra só com CPF; senha só pra vendedor e admin.
+      document.getElementById('passwordField').style.display = cliente ? 'none' : '';
+      newForm.password.required = !cliente;
+    });
     newForm.addEventListener('submit', async (e) => {
       e.preventDefault();
       try {

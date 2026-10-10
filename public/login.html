@@ -10,12 +10,14 @@
   <main class="login-box">
     <div class="emoji">🎈🎉🍿</div>
     <h1>Festa do Dia das Crianças</h1>
-    <p class="small">12 de outubro · Entre com o CPF e a senha que você recebeu</p>
+    <p class="small">12 de outubro · Entre com o seu CPF</p>
     <form class="card sun" id="form">
       <label for="login">CPF</label>
       <input id="login" name="login" inputmode="numeric" autocomplete="username" placeholder="000.000.000-00" required autofocus>
-      <label for="password">Senha</label>
-      <input id="password" name="password" type="password" autocomplete="current-password" required>
+      <div id="pwField" hidden>
+        <label for="password">Senha</label>
+        <input id="password" name="password" type="password" autocomplete="current-password">
+      </div>
       <button type="submit" id="btn">Entrar 🎟️</button>
     </form>
   </main>
@@ -27,8 +29,17 @@
       e.preventDefault();
       const btn = document.getElementById('btn'); btn.disabled = true;
       try {
-        const { role } = await api('/api/login', { body: { login: form.login.value, password: form.password.value } });
-        location.href = { admin: '/admin', vendedor: '/vendedor', cliente: '/cliente' }[role] || '/';
+        const r = await fetch('/api/login', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+          body: JSON.stringify({ login: form.login.value, password: form.password.value }),
+        });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          // Admin e vendedor precisam de senha: mostra o campo só pra eles.
+          if (data.needPassword) { document.getElementById('pwField').hidden = false; form.password.focus(); }
+          throw new Error(data.error || `Erro ${r.status}`);
+        }
+        location.href = { admin: '/admin', vendedor: '/vendedor', cliente: '/cliente' }[data.role] || '/';
       } catch (err) { toast(err.message, 'err'); btn.disabled = false; }
     });
   </script>

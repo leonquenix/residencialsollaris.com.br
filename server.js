@@ -21,10 +21,13 @@ function loadSecret() {
   return fs.readFileSync(f, 'utf8').trim();
 }
 
-// "430.739.028-80" -> "43073902880"; "admin" -> "admin"
+// "430.739.028-80", "430 739 028 80", "43073902880" -> "43073902880"; "admin" -> "admin".
+// CPF que perdeu o zero à esquerda (ex.: colado do Excel, "1234567890") é completado.
 function normalizeLogin(s = '') {
-  const digits = String(s).replace(/\D/g, '');
-  return digits.length === 11 ? digits : String(s).trim().toLowerCase();
+  const str = String(s).trim();
+  const digits = str.replace(/\D/g, '');
+  if (/^[\d.\-\/\s]+$/.test(str) && digits.length >= 9 && digits.length <= 11) return digits.padStart(11, '0');
+  return digits.length === 11 ? digits : str.toLowerCase();
 }
 
 // Aceita "43073902880-1", "430.739.028-80 - 1", "43073902880 1"...
@@ -111,8 +114,11 @@ app.use(cookieSession({
 app.post('/api/login', loginLimiter, (req, res) => {
   const login = normalizeLogin(req.body?.login);
   const user = login && db.getUserByLogin(login);
-  if (!user || !checkPassword(req.body?.password, user.password_hash)) {
-    return bad(res, 401, 'CPF ou senha incorretos');
+  if (!user) return bad(res, 400, 'CPF não cadastrado');
+  // Morador entra só com o CPF; admin e vendedor continuam com senha.
+  if (user.role !== 'cliente') {
+    if (!req.body?.password) return res.status(400).json({ error: 'Digite a senha', needPassword: true });
+    if (!checkPassword(req.body.password, user.password_hash)) return res.status(400).json({ error: 'Senha incorreta', needPassword: true });
   }
   req.session = { uid: user.id, role: user.role };
   res.json({ role: user.role, name: user.name });
@@ -177,6 +183,8 @@ function validateNewUser({ login, name, role, password }) {
   if (db.getUserByLogin(l)) return { error: `Já existe cadastro para ${l}` };
   if (!ROLES.includes(role)) return { error: 'Tipo inválido' };
   if (!name?.trim()) return { error: 'Nome obrigatório' };
+  // Morador não usa senha: guarda uma aleatória só pra coluna não ficar vazia.
+  if (role === 'cliente' && !password) password = crypto.randomBytes(16).toString('hex');
   if (!password || String(password).length < 4) return { error: 'Senha precisa ter pelo menos 4 caracteres' };
   return { login: l, name: name.trim(), role, password: String(password) };
 }
@@ -190,13 +198,16 @@ admin.post('/users', (req, res) => {
   res.status(201).json({ ...user, vouchers });
 });
 
-// Importação em massa. Uma pessoa por linha: CPF;Nome;Senha;Suco=5|Cachorro-quente=6
+// Importação em massa. Uma pessoa por linha: CPF;Nome;Suco=5|Cachorro-quente=6
+// (o formato antigo CPF;Nome;Senha;Vouchers ainda é aceito; a senha é ignorada).
 admin.post('/users/import', (req, res) => {
   const lines = String(req.body?.text || '').split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('#'));
   const report = { criados: 0, vouchers: 0, erros: [] };
   lines.forEach((line, i) => {
-    const [login, name, password, vouchersRaw = ''] = line.split(/\t|;/).map((x) => x.trim());
-    const v = validateNewUser({ login, name, role: 'cliente', password });
+    const cols = line.split(/\t|;/).map((x) => x.trim());
+    const [login, name] = cols;
+    const vouchersRaw = (cols.length >= 4 ? cols[3] : cols[2]) || '';
+    const v = validateNewUser({ login, name, role: 'cliente' });
     if (v.error) return report.erros.push(`Linha ${i + 1}: ${v.error}`);
     const user = db.createUser({ login: v.login, name: v.name, role: 'cliente', password_hash: hash(v.password) });
     const created = db.addVouchers(user.id, expandVouchers(vouchersRaw));
@@ -256,6 +267,28 @@ app.get('/', (req, res) => {
 app.get('/cliente', pageFor(['cliente'], 'cliente.html'));
 app.get('/vendedor', pageFor(['vendedor', 'admin'], 'vendedor.html'));
 app.get('/admin', pageFor(['admin'], 'admin.html'));
+
+// Lista simples dos nomes dos moradores, sem CPF, pra selecionar com o mouse e colar no Excel.
+app.get('/admin/listagem', (req, res) => {
+  if (req.session?.role !== 'admin') return res.redirect('/');
+  const esc = (t) => String(t).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const names = db.listUsers().filter((u) => u.role === 'cliente').map((u) => u.name)
+    .sort((a, b) => a.localeCompare(b, 'pt-BR'));
+  res.type('html').send(`<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Listagem de moradores</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 24px 16px; background: #fff; color: #111; }
+  table { border-collapse: collapse; }
+  th, td { border: 1px solid #ccc; padding: 6px 12px; text-align: left; }
+  th { background: #f3f3f3; }
+</style></head><body>
+<p>${names.length} morador(es)</p>
+<table><thead><tr><th>Nome</th></tr></thead><tbody>
+${names.map((n) => `<tr><td>${esc(n)}</td></tr>`).join('\n')}
+</tbody></table>
+</body></html>`);
+});
 
 app.use('/vendor/jsQR.js', express.static(path.join(__dirname, 'node_modules/jsqr/dist/jsQR.js')));
 app.use(express.static(path.join(__dirname, 'public'), { index: false }));
