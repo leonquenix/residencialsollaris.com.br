@@ -53,6 +53,17 @@ function expandVouchers(input) {
   return out;
 }
 const hash = (pw) => bcrypt.hashSync(String(pw), 10);
+
+// Senhas no padrão quadra/lote ("Q3L7") valem em maiúscula ou minúscula,
+// não importa como foram cadastradas. Outras senhas comparam exatamente.
+function checkPassword(raw, password_hash) {
+  const pw = String(raw ?? '');
+  const candidates = /^q\d+l\d+$/i.test(pw.trim())
+    ? new Set([pw.trim().toUpperCase(), pw.trim().toLowerCase()])
+    : [pw];
+  for (const c of candidates) if (bcrypt.compareSync(c, password_hash)) return true;
+  return false;
+}
 const bad = (res, status, error) => res.status(status).json({ error });
 
 function requireRole(...roles) {
@@ -100,7 +111,7 @@ app.use(cookieSession({
 app.post('/api/login', loginLimiter, (req, res) => {
   const login = normalizeLogin(req.body?.login);
   const user = login && db.getUserByLogin(login);
-  if (!user || !bcrypt.compareSync(String(req.body?.password ?? ''), user.password_hash)) {
+  if (!user || !checkPassword(req.body?.password, user.password_hash)) {
     return bad(res, 401, 'CPF ou senha incorretos');
   }
   req.session = { uid: user.id, role: user.role };

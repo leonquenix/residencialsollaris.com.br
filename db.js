@@ -48,7 +48,13 @@ const q = (sql) => db.prepare(sql);
 
 // ---------- usuários ----------
 export const countAdmins = () => q(`SELECT COUNT(*) AS n FROM users WHERE role = 'admin'`).get().n;
-export const getUserByLogin = (login) => q(`SELECT * FROM users WHERE login = ?`).get(login);
+// Ignora pontos, traços e espaços do que está gravado: alguns CPFs foram cadastrados
+// formatados ("430.739.028-80") e precisam bater com o login só em dígitos.
+export const getUserByLogin = (login) => q(`
+  SELECT * FROM users
+  WHERE login = ? OR REPLACE(REPLACE(REPLACE(login, '.', ''), '-', ''), ' ', '') = ?
+  ORDER BY login = ? DESC LIMIT 1
+`).get(login, login, login);
 export const getUserById = (id) => q(`SELECT id, login, name, role, created_at FROM users WHERE id = ?`).get(id);
 
 export function createUser({ login, name, role, password_hash }) {
